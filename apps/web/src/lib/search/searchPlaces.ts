@@ -1,24 +1,35 @@
 import { prisma } from "@moves/db";
-import type {
-  ParsedIntent,
-  ScoredResult,
-  SearchQuery,
-  SearchResponse,
-} from "@moves/shared";
+import type { SearchQuery, SearchResponse } from "@moves/shared";
+import { scoreResults } from "@/lib/recommendations/scoreResults";
 import { buildPlaceWhere } from "./buildPlaceWhere";
 import { mapDbPlace } from "./mapDbPlace";
+import { queryToIntent } from "./queryToIntent";
 
 /**
- * Single entry point for "given a SearchQuery, give me a SearchResponse."
- * Step 4 swapped the in-memory MOCK_PLACES filter for a real Prisma query;
- * the function's signature only changed from sync to async.
+ * Given a SearchQuery, give me a SearchResponse.
  *
- * What's still stubbed:
- *   - score 0 / reasons [] on every ScoredResult (step 5 fills these)
- *   - intent mirrors the query (step 6's LLM parser fills this when q is set)
+ * Step 5 plugs the real scorer between the DB query and the response.
+ * Order of operations:
+ *   1. Build a Prisma WHERE from the query
+ *   2. Fetch all matching rows (up to a safety cap)
+ *   3. Map DB rows → shared Place
+ *   4. Translate query → ParsedIntent (step 6 makes this an LLM call)
+ *   5. Score and sort
+ *   6. Trim to the page
+ *
+ * The DB still does the *filtering* — Postgres + GIN indexes are way better
+ * at that than we are. Scoring stays in-process because our weights aren't
+ * something the DB can know about.
  */
 
 const PAGE_CAP = 50;
+
+/**
+ * Hard cap on candidates we'll score in-memory. Above this, scoring needs
+ * to move into a materialized column or a search index — but we won't see
+ * that pressure for thousands of rows.
+ */
+const SAFETY_CAP = 500;
 
 export async function searchPlaces(
   query: SearchQuery,
@@ -26,29 +37,14 @@ export async function searchPlaces(
   const where = buildPlaceWhere(query);
 
   const [rows, totalCount] = await Promise.all([
-    prisma.place.findMany({
-      where,
-      take: PAGE_CAP,
-      orderBy: { name: "asc" },
-    }),
+    prisma.place.findMany({ where, take: SAFETY_CAP }),
     prisma.place.count({ where }),
   ]);
 
-  const results: ScoredResult[] = rows.map((row) => ({
-    itemType: "place",
-    item: mapDbPlace(row),
-    score: 0,
-    reasons: [],
-  }));
-
-  const intent: ParsedIntent = {
-    rawQuery: query.q ?? "",
-    vibes: query.vibes,
-    musicStyles: query.musicStyles,
-    categories: query.categories,
-    neighborhoods: query.neighborhoods,
-    pricePreference: query.pricePreference,
-  };
+  const intent = queryToIntent(query);
+  const places = rows.map(mapDbPlace);
+  const ranked = scoreResults(intent, places);
+  const results = ranked.slice(0, PAGE_CAP);
 
   return { results, intent, totalCount };
 }
