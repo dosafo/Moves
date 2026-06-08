@@ -1,17 +1,17 @@
 import type { Place } from "@moves/shared";
 
 /**
- * Hand-written Chicago seed data — stand-in for the database that arrives
- * in step 4. The shape and access pattern match `Place[]` so swapping in
- * Prisma later doesn't ripple beyond this file.
+ * Hand-curated Chicago places used by `seed.ts` to populate an empty DB.
+ * Typed against the shared `Place` shape so a typo in any tag is a
+ * compile-time error before it ever reaches Postgres.
  *
- * Coverage was deliberately engineered so search has signal:
+ * Coverage is engineered so search has signal:
  *   - every Vibe appears on ≥ 2 places
  *   - marquee music styles (afrobeats, house, hiphop, jazz, latin) appear ≥ 1
  *   - 6 distinct neighborhoods represented
  *   - all 4 price levels represented
  */
-export const MOCK_PLACES: Place[] = [
+export const SEED_PLACES: Place[] = [
   {
     id: "the-empty-bottle",
     name: "The Empty Bottle",

@@ -17,7 +17,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const raw = await searchParams;
   const params = searchParamsToURLSearchParams(raw);
   const query = parseSearchQuery(params);
-  const response = searchPlaces(query);
+  const response = await searchPlaces(query);
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8">

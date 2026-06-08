@@ -19,6 +19,6 @@ import { searchPlaces } from "@/lib/search/searchPlaces";
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const query = parseSearchQuery(url.searchParams);
-  const response = searchPlaces(query);
+  const response = await searchPlaces(query);
   return Response.json(response);
 }

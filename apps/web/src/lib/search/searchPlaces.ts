@@ -1,33 +1,42 @@
+import { prisma } from "@moves/db";
 import type {
   ParsedIntent,
   ScoredResult,
   SearchQuery,
   SearchResponse,
 } from "@moves/shared";
-import { MOCK_PLACES } from "@/data/mockPlaces";
-import { filterPlaces } from "./filterPlaces";
+import { buildPlaceWhere } from "./buildPlaceWhere";
+import { mapDbPlace } from "./mapDbPlace";
 
 /**
- * The single entry point for "given a SearchQuery, give me a SearchResponse."
- * Used by `/api/search` and by the server-rendered `/search` page. Lets the
- * page render results without fetching its own API over HTTP.
+ * Single entry point for "given a SearchQuery, give me a SearchResponse."
+ * Step 4 swapped the in-memory MOCK_PLACES filter for a real Prisma query;
+ * the function's signature only changed from sync to async.
  *
- * What's stubbed here, what's real:
- *   - `intent` mirrors the query 1:1 — step 6's LLM parser will produce a
- *     richer intent when `q` is set, distinct from the raw query.
- *   - every ScoredResult has score 0 and reasons [] — step 5's scorer fills
- *     these in. The wrapping stays; only the values change.
+ * What's still stubbed:
+ *   - score 0 / reasons [] on every ScoredResult (step 5 fills these)
+ *   - intent mirrors the query (step 6's LLM parser fills this when q is set)
  */
 
 const PAGE_CAP = 50;
 
-export function searchPlaces(query: SearchQuery): SearchResponse {
-  const matched = filterPlaces(query, MOCK_PLACES);
-  const limited = matched.slice(0, PAGE_CAP);
+export async function searchPlaces(
+  query: SearchQuery,
+): Promise<SearchResponse> {
+  const where = buildPlaceWhere(query);
 
-  const results: ScoredResult[] = limited.map((place) => ({
+  const [rows, totalCount] = await Promise.all([
+    prisma.place.findMany({
+      where,
+      take: PAGE_CAP,
+      orderBy: { name: "asc" },
+    }),
+    prisma.place.count({ where }),
+  ]);
+
+  const results: ScoredResult[] = rows.map((row) => ({
     itemType: "place",
-    item: place,
+    item: mapDbPlace(row),
     score: 0,
     reasons: [],
   }));
@@ -41,9 +50,5 @@ export function searchPlaces(query: SearchQuery): SearchResponse {
     pricePreference: query.pricePreference,
   };
 
-  return {
-    results,
-    intent,
-    totalCount: matched.length,
-  };
+  return { results, intent, totalCount };
 }

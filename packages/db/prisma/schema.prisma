@@ -1,0 +1,85 @@
+// Single source of truth for the catalog DB.
+//
+// Tag taxonomies (vibes, music styles) are stored as native Postgres `text[]`
+// arrays rather than join tables. Justification:
+//   - we only filter by "any overlap" today — PG's `&&` array operator does
+//     that in one expression
+//   - the taxonomies are tiny and curated (see packages/shared/constants)
+//   - row count per place is bounded (<10 tags), so denormalization is cheap
+// When we need per-tag aggregates ("how many places are tagged 'energetic'?")
+// or full-text rank, we switch to join tables. Until then, arrays win.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Place {
+  id           String   @id
+  name         String
+  description  String
+  category     String
+  neighborhood String
+  city         String
+  address      String
+  lat          Float
+  lng          Float
+  priceLevel   Int
+
+  vibes        String[]
+  musicStyles  String[]
+
+  websiteUrl   String?
+  photoUrls    String[] @default([])
+
+  externalSource   String?
+  externalId       String?
+
+  events       Event[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([neighborhood])
+  @@index([category])
+  @@index([priceLevel])
+  // GIN index for fast `vibes && ARRAY['energetic']::text[]` overlap queries.
+  @@index([vibes], type: Gin)
+  @@index([musicStyles], type: Gin)
+}
+
+model Event {
+  id          String   @id
+  placeId     String
+  place       Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String
+
+  startTime   DateTime
+  endTime     DateTime
+
+  priceMin    Float?
+  priceMax    Float?
+
+  vibes       String[]
+  musicStyles String[]
+
+  ticketUrl   String?
+
+  externalSource String?
+  externalId     String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startTime])
+  @@index([placeId])
+  @@index([vibes], type: Gin)
+  @@index([musicStyles], type: Gin)
+}
