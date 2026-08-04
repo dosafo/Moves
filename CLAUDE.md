@@ -8,63 +8,114 @@
 
 ```
 Moves/
-├── frontend/          # React + TypeScript (Vite)
-│   ├── index.html
-│   └── src/
-│       ├── App.tsx
-│       └── components/
-│           ├── SearchInput.tsx   # Natural language query entry
-│           └── SearchResult.tsx  # Venue result cards
-└── backend/           # Python (FastAPI expected)
-    ├── main.py        # API entrypoint
-    └── query_router.py  # Routes/classifies user queries
+├── backend/                      # Python — FastAPI
+│   ├── main.py                   # API entrypoint: /health, /search
+│   ├── query_router.py           # Claude API integration + multi-turn history
+│   ├── venues.py                 # In-memory venue catalog + filtering utilities
+│   ├── requirements.txt
+│   └── .env.example              # Copy to .env and add ANTHROPIC_API_KEY
+└── frontend/                     # React + TypeScript (Vite + Tailwind)
+    └── src/
+        ├── App.tsx               # Root: state, search/refine handlers, layout
+        ├── components/
+        │   ├── SearchInput.tsx   # Query + optional location inputs
+        │   ├── SearchResult.tsx  # Venue card (enriched: vibes, price, match reason)
+        │   ├── IntentPanel.tsx   # Parsed-intent badge row ("We understood…")
+        │   └── RefineInput.tsx   # Follow-up refinement field (shown after results)
+        └── index.tsx             # ReactDOM entry point
 ```
 
-### Frontend
-- React + TypeScript
-- Core UX is search-driven: user types a natural language query, results are returned as venue cards
-- `SearchInput` captures the query; `SearchResult` renders each match
+## Stack
 
-### Backend
-- Python; expected to use FastAPI
-- `query_router.py` is the core intelligence layer — it interprets user queries and routes them to the appropriate data source or AI model
-- Likely integrates with Claude (Anthropic) for semantic understanding of what the user wants
+- **Backend**: Python 3.12, FastAPI, Pydantic, Uvicorn, Anthropic SDK
+- **Frontend**: React 18, TypeScript (strict), Vite, Tailwind CSS
+- **AI**: Claude (claude-sonnet-4-6) via Anthropic async client
 
 ## Core User Flow
 
-1. User lands on the app and sees a prominent search input
-2. User types a natural language prompt (e.g., "chill spot for 4 people on a Friday night, nothing too loud")
-3. Query router parses intent: group size, vibe, occasion, location constraints
-4. Relevant venues are returned and displayed as result cards
-5. User can browse, filter, or refine
-
-## Development Conventions
-
-- **Frontend**: TypeScript strict mode; functional components only; no class components
-- **Backend**: Python; keep `query_router.py` focused on routing/classification logic, not data fetching
-- **No premature abstractions** — build for the current feature, not hypothetical future ones
-- **No comments unless the WHY is non-obvious** — clear naming is preferred
-- **No unnecessary error handling** — only validate at system boundaries (user input, external APIs)
+1. User types a natural language query ("chill spot for a date, not too loud") and optionally a city/neighbourhood
+2. `SearchInput` submits to `POST /search` in `main.py`
+3. `query_router.py` filters the venue catalog by location, injects it into the Claude system prompt, and sends the query (plus any prior conversation history for refinements)
+4. Claude selects 2–4 venues from the catalog by ID and returns structured intent + picks
+5. `query_router` validates IDs, enriches each venue with full catalog data, returns JSON
+6. `App.tsx` renders `IntentPanel` (parsed intent chips) + `SearchResult` cards
+7. If the user refines ("make it quieter"), the prior turns are sent as history so Claude can interpret the follow-up in context
 
 ## Key Design Decisions
 
-- Search is the primary interface — not browsing categories
-- Natural language input is a first-class feature, not a filter layer on top of a grid
-- Results should feel curated, not exhaustive — quality over quantity
+### RAG over hallucination
+`venues.py` holds a curated catalog. Claude **selects** from it by ID rather than inventing venues. IDs are validated post-parse; unknown IDs are dropped. This makes results trustworthy and eventually replaceable with a real DB or Google Places call.
+
+### Deterministic filtering + LLM understanding
+Location filtering is done in Python (exact/substring match on city + neighborhood), not by asking Claude to filter. Claude handles "what did the user mean?"; Python handles "which exact records match?" The two concerns are intentionally separate.
+
+### Multi-turn history is client-side
+Conversation history is stored in `App.tsx` state and sent with each request. The backend stays completely stateless — no sessions, no Redis. History is capped at the last 4 turns in `query_router.py` to avoid context bloat.
+
+### Intent transparency
+The `IntentPanel` shows what Claude understood (group type, vibe, occasion, time, constraints) as dismissable chips. This lets users verify the system's interpretation and helps debug misparsing.
+
+### Search is the primary interface
+No category browsing. Natural language first. Results are curated (2–4 venues), not exhaustive.
+
+## Development Conventions
+
+- **TypeScript strict mode**; functional components only; no class components
+- **Python 3.12+** — uses `str | None` union syntax, dataclasses
+- **No premature abstractions** — build for the current feature
+- **No comments unless the WHY is non-obvious** — clear naming preferred
+- **No unnecessary error handling** — validate at system boundaries (user input, external APIs)
+
+## Running Locally
+
+```bash
+# Backend
+cp backend/.env.example backend/.env
+# Edit backend/.env and add: ANTHROPIC_API_KEY=sk-ant-...
+cd backend
+pip install -r requirements.txt
+python3 -m uvicorn main:app --reload --port 8000
+
+# Frontend (separate terminal)
+cd frontend
+npm install          # if node_modules not present
+npm run dev
+# → http://localhost:5173
+```
+
+## Smoke Test (once API key is set)
+
+```bash
+curl -s -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"something low-key for a date, not too loud","location":"Chicago","history":[]}' \
+  | python3 -m json.tool
+```
+
+Expected: JSON with `intent` object (group_type, vibe, etc.) and `venues` array of 2–4 enriched catalog entries with `match_reason`.
 
 ## What's Not Built Yet
 
-- Package/dependency setup (no `package.json`, `requirements.txt`, or `vite.config` yet)
-- All source files are currently empty placeholders
-- No database or venues data source wired up
-- No auth layer
+- Real venue database (Postgres + Prisma, or Google Places ingestion)
+- Auth layer
+- Refinement UI to edit individual intent chips (click a chip → change that dimension)
+- Dark mode
+- Result caching (same query → same catalog → same results; cache by query+location hash)
 
-## Immediate Next Steps (expected build order)
+## Immediate Next Steps
 
-1. Scaffold frontend: `package.json`, Vite config, Tailwind or CSS setup
-2. Scaffold backend: FastAPI app in `main.py`, dev server
-3. Implement `SearchInput` component with debounced query submission
-4. Implement `SearchResult` component for rendering venue cards
-5. Wire `query_router.py` to Claude API for query understanding
-6. Connect frontend to backend search endpoint
-7. Integrate a venues data source (Google Places API, Foursquare, or custom)
+1. Add `ANTHROPIC_API_KEY` to `backend/.env` and run the smoke test above
+2. Replace `venues.py` catalog with a real data source (Google Places API or Postgres)
+3. Add intent chip editing (click a chip to refine that single dimension)
+4. Wire browser geolocation to the location field as a "use my location" shortcut
+
+## Documentation
+
+Detailed L1–L6 pseudocode docs for each layer are in `docs/pseudocode/`:
+- `01-backend-api.md` — FastAPI server + request lifecycle
+- `02-query-router.md` — Claude integration + JSON extraction
+- `03-frontend-search.md` — React state + component structure
+- `04-venue-catalog.md` — RAG catalog design + ID validation
+- `05-intent-panel.md` — intent transparency + chip layout
+- `06-location-search.md` — deterministic filtering + LLM understanding split
+- `07-refinement.md` — stateless multi-turn history pattern
