@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 export interface Intent {
   group_type: string | null
   occasion: string | null
@@ -13,6 +15,8 @@ interface Chip {
 
 interface Props {
   intent: Intent | null
+  onEdit?: (dimension: string, oldValue: string, newValue: string) => void
+  disabled?: boolean
 }
 
 // Dimension labels are lowercase and short so they read as secondary
@@ -29,13 +33,32 @@ function buildChips(intent: Intent): Chip[] {
   return chips
 }
 
-export function IntentPanel({ intent }: Props) {
+export function IntentPanel({ intent, onEdit, disabled }: Props) {
+  // Index of the chip currently in edit mode, if any. Only one chip can be
+  // edited at a time since an edit immediately fires a refinement request.
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+
   // Render nothing until a search completes — avoids a flash of empty
   // content between page load and first result set.
   if (!intent) return null
 
   const chips = buildChips(intent)
   if (chips.length === 0) return null
+
+  function startEditing(chip: Chip, i: number) {
+    if (disabled || !onEdit) return
+    setEditingIndex(i)
+    setDraft(chip.value)
+  }
+
+  function commitEdit(chip: Chip) {
+    const trimmed = draft.trim()
+    setEditingIndex(null)
+    if (trimmed && trimmed !== chip.value) {
+      onEdit?.(chip.dimension, chip.value, trimmed)
+    }
+  }
 
   return (
     <section
@@ -46,18 +69,36 @@ export function IntentPanel({ intent }: Props) {
         We understood
       </p>
       <div className="flex flex-wrap gap-2">
-        {chips.map((chip, i) => (
-          <span
-            key={i}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-sm"
-            title={chip.value}
-          >
-            <span className="text-xs text-gray-400">{chip.dimension}</span>
-            <span className="text-gray-800 font-medium max-w-[180px] truncate">
-              {chip.value}
-            </span>
-          </span>
-        ))}
+        {chips.map((chip, i) =>
+          editingIndex === i ? (
+            <input
+              key={i}
+              autoFocus
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={() => commitEdit(chip)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitEdit(chip)
+                if (e.key === 'Escape') setEditingIndex(null)
+              }}
+              className="px-3 py-1.5 rounded-full border border-indigo-300 bg-white text-sm text-gray-800 font-medium max-w-[220px] focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+          ) : (
+            <button
+              key={i}
+              type="button"
+              onClick={() => startEditing(chip, i)}
+              disabled={disabled}
+              title={onEdit ? `Click to change ${chip.dimension}` : chip.value}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 bg-white text-sm hover:border-indigo-300 hover:bg-indigo-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:cursor-default transition-colors"
+            >
+              <span className="text-xs text-gray-400">{chip.dimension}</span>
+              <span className="text-gray-800 font-medium max-w-[180px] truncate">
+                {chip.value}
+              </span>
+            </button>
+          ),
+        )}
       </div>
     </section>
   )

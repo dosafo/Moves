@@ -27,7 +27,7 @@ export function RefineInput({ onRefine, loading }: Props) {
           type="text"
           value={value}
           onChange={e => setValue(e.target.value)}
-          placeholder="Narrow it down… (e.g. "make it quieter" or "closer to downtown")"
+          placeholder="Narrow it down… (e.g. “make it quieter” or “closer to downtown”)"
           disabled={loading}
           className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent disabled:opacity-50"
         />

@@ -125,6 +125,23 @@ export default function App() {
     executeSearch(refinement, lastLocation, history)
   }
 
+  // Chip labels read naturally in a badge ("vibe") but need to become a
+  // full clause to make sense as a refinement message Claude interprets.
+  const DIMENSION_PHRASES: Record<string, string> = {
+    group: 'who this is for',
+    occasion: 'the occasion',
+    vibe: 'the vibe',
+    time: 'the time of day',
+  }
+
+  function handleChipEdit(dimension: string, oldValue: string, newValue: string) {
+    const message =
+      dimension === 'note'
+        ? `Update this constraint: change "${oldValue}" to "${newValue}".`
+        : `Change ${DIMENSION_PHRASES[dimension] ?? dimension} from "${oldValue}" to "${newValue}".`
+    handleRefine(message)
+  }
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -149,7 +166,7 @@ export default function App() {
         {/* Intent panel appears as soon as we have a parsed intent.
             Cleared to null at the start of each new search so it doesn't
             show stale data between a submit and the response arriving. */}
-        <IntentPanel intent={intent} />
+        <IntentPanel intent={intent} onEdit={handleChipEdit} disabled={loading} />
 
         {loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
